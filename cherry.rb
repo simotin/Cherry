@@ -7,13 +7,60 @@ class Cherry
 		puts "initialize"
 		@funcTable = []
 		@filename = filename
-		create_makefile filename
-		result = `make`
 	end
 
 	def generate
 		# C言語のソースファイルから登録すべき関数名を取得する
 		parse
+		extfile = File.open("ext.c","w")
+		extfile.puts %{#include "ruby.h"}
+		extfile.puts ""
+		extfile.puts "void Init_TestTarget(void) {"
+		extfile.puts "	VALUE module;"
+		extfile.puts %{	module = rb_define_module( "TestTarget" );}
+
+		# ラッパー関数を作成
+		@funcTable.each do |function|
+			extfile.puts "VALUE rb_test_#{function[:functionName]} {"
+			ret = ""
+			case function[:retType]
+				when 'int'
+					ret = "INT2FIX("
+						print %{#{function[:functionName]}(}
+						if function[:args].length != 0
+							function[:args].each do |arg|
+							print "#{arg},"
+						else
+							print "void"
+						end
+				when 'void'
+					ret = "void"
+					print %{#{function[:functionName]}(}
+					if function[:args].length != 0
+						argStr
+						function[:args].each do |arg|
+						argStr += "#{arg}"
+						end
+						# 末尾の, を削除
+						argStr.slice!(-1)
+						puts  "#{argStr}) {"
+						
+					else
+						print "void"
+					end
+
+			end
+		end
+
+		# 認識済みの関数を登録
+		@funcTable.each do |function|
+			line = %{	rb_define_module_function( module, "#{function[:functionName]}", rb_test_#{function[:functionName]}, #{function[:args].length} );}
+			extfile.puts line
+		end
+		extfile.puts "}"
+		extfile.close
+		create_makefile filename
+		result = `make`
 	end
 
 	def parse
@@ -67,4 +114,3 @@ class Cherry
 			return args
 	 end
 end
-
