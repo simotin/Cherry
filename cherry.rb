@@ -2,11 +2,16 @@ require 'mkmf'
 
 class Cherry
 	@@types = ['int', 'void']
-	
+
 	def initialize(filename)
 		puts "initialize"
 		@funcTable = []
 		@filename = filename
+	end
+
+	def add(info)
+		
+	
 	end
 
 	def generate
@@ -21,9 +26,18 @@ class Cherry
 
 		# ラッパー関数を作成
 		@funcTable.each do |function|
-			extfile.puts "VALUE rb_test_#{function[:functionName]} {"
+			extfile.puts "VALUE rb_test_#{function[:functionName]}"
+
+			print "(VALUE self"
+			# ラッパー関数引数
+			args = function[:args]
+			retType = function[:retType]
+			args.with_index do |arg, idx|
+				print ",#{arg} param#{idx}"
+			end
+			print ") {"
 			ret = ""
-			case function[:retType]
+			case retType
 				when 'int'
 					ret = "INT2FIX("
 						print %{#{function[:functionName]}(}
@@ -39,17 +53,30 @@ class Cherry
 					if function[:args].length != 0
 						argStr
 						function[:args].each do |arg|
-						argStr += "#{arg}"
+							argStr += "#{arg}"
 						end
 						# 末尾の, を削除
 						argStr.slice!(-1)
 						puts  "#{argStr}) {"
-						
 					else
 						print "void"
 					end
-
 			end
+			puts "	VALUE obj"
+			print "obj = #{functionName}("
+			args.with_index do |arg, idx|
+				print ',' if idx != 1
+				case arg
+				when 'int'
+					print "FIX2INT(param#{idx}"
+			end
+			case retType
+				when 'int'
+					puts "return INT2FIX(#{obj});"
+				when 'void'
+					puts "return Qnil;"
+			end
+			puts "}"
 		end
 
 		# 認識済みの関数を登録
