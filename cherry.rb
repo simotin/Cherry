@@ -1,164 +1,178 @@
 require 'mkmf'
 
 class Cherry
-	@@types = ['int', 'void']
+  ASSERT_EQUAL = :ASSERT_EQUAL
 
-	def initialize(filename)
-		puts "initialize"
-		@funcTable = []
-		@filename = filename
-	end
+  @@types = ['int', 'void']
+  @test_case = []
 
-	def add(info)
-	end
-	
-	# ヘッダー部出力
-	def generateHeader(extfile)
-		extfile.puts %{#include "ruby.h"}
+  def initialize(filename)
+    puts "initialize"
+    @funcTable = []
+    @filename = filename
+  end
 
-		# 認識済みの関数のextern 宣言を出力
-		@funcTable.each do |function|
-			extfile.print "extern #{function[:retType]} #{function[:functionName]}("
-			function[:args].each.with_index(1) do |arg, idx|
-				extfile.print ', ' if idx != 1
-				extfile.print "#{arg}"
-			end
-			extfile.puts ");"
+  # 
+  def add_test(function_name, args, assert_type, comment="")
+    @tests << {:function_name =>function_name, :args=>args, :assert_type=>assert_type, :value=>value, :comment=>comment}
+  end
 
-		end
-	end
-	
-	# ライブラリ初期化コード出力
-	def generateInitCode(extfile)
-		extfile.puts ""
-		extfile.puts "void Init_TestTarget(void) {"
-		extfile.puts ""
-		extfile.puts "	VALUE module;"
-		extfile.puts %{	module = rb_define_module( "TestTarget" );}
+  def run
+    parse
+    build
+    exec_test
+  end
 
-		# 認識済みの関数を登録
-		@funcTable.each do |function|
-			line = %{	rb_define_module_function( module, "#{function[:functionName]}", rb_test_#{function[:functionName]}, #{function[:args].length} );}
-			extfile.puts line
-		end
-		extfile.puts "}"
-	end
+  def exec_test
+    require 'TestTarget'
+    @test_cases.each do |test|
+      ret = eval("TestTarget.#{test.function_name}")
+      case test[:assert_type]
+      when ASSERT_EQUAL
+        if test[:value] == ret
+          test_result << "success"
+        else
+          test_result << "failed #{test[:function_name]} returns #{ret}. You expect #{test[:value]}"
+        end
+      end
+    end
+  end
+  def parse
+    code = File.open(@filename) do |file|
+      while line = file.gets
+        if line.scan(/.*\s.*\(.*\);/).length == 1
+          parts = line.split(' ')
+          # 戻り値の型
+          retType = getType(line)
+          # カッコの中をカンマで区切る
+          functionName = getFunctionName(line)
+          # 引数
+          args = getParams(line)
+          @funcTable << {:ret_type =>ret_type, :function_name =>function_name, :args => args }
+        end
+      end
+    end
+    puts "functable:#{@func_table}"
+  end
+=begin
 
-	def generateWrapperFunction(extfile)
-		# ラッパー関数を作成
-		@funcTable.each do |function|
-			functionName = function[:functionName]
-			args = function[:args]
-			retType = function[:retType]
+  def build
+      extfile = File.open("ext.c","w")
+      generateHeader(extfile)
 
-			extfile.puts ""
-			extfile.print "VALUE rb_test_#{function[:functionName]}"
-			extfile.print "(VALUE self"
+      # テスト対象関数のラッパー関数生成
+      generate_wrapper_function(extfile)
 
-			# ラッパー関数引数
-			args.each.with_index(1) do |arg, idx|
-				extfile.print ",VALUE param#{idx}"
-			end
-			extfile.print ") {"
-			extfile.puts ""
-			ret = ""
-			case retType
-				when 'int'
-					extfile.puts "	int obj;"
-			end
+      # ライブラリ初期化コードの生成
+      generate_init_code(extfile)
 
-			
-			extfile.print "	obj = #{functionName}("
-			args.each.with_index(1) do |arg, idx|
-				extfile.print ',' if idx != 1
-				case arg
-				when 'int'
-					extfile.print "FIX2INT(param#{idx})"
-				when 'void'
-					# 何も出力しない
-				end
-			end
-			extfile.puts ");"
-			case retType
-				when 'int'
-					extfile.puts "	return INT2FIX(obj);"
-				when 'void'
-					extfile.puts "	return Qnil;"
-			end
-			extfile.puts "}"
-		end
-	end
-	
-	def run
-		parse
-		build
-	end
+      extfile.close
 
-	def build
+      create_makefile @filename
+      result = `make`
+  end
+  # ヘッダー部出力
+  def generate_header(extfile)
+    extfile.puts %{#include "ruby.h"}
 
-		extfile = File.open("ext.c","w")
-		generateHeader(extfile)
+    # 認識済みの関数のextern 宣言を出力
+    @funcTable.each do |function|
+      extfile.print "extern #{function[:ret_type]} #{function[:function_name]}("
+        function[:args].each.with_index(1) do |arg, idx|
+          extfile.print ', ' if idx != 1
+          extfile.print "#{arg}"
+        end
+      extfile.puts ");"
+    end
+  end
 
-		# テスト対象関数のラッパー関数生成
-		generateWrapperFunction(extfile)
-		
-		# ライブラリ初期化コードの生成
-		generateInitCode(extfile)
+  # ライブラリ初期化コード出力
+  def generate_init_code(extfile)
+    extfile.puts ""
+    extfile.puts "void Init_TestTarget(void) {"
+    extfile.puts ""
+    extfile.puts "    VALUE module;"
+    extfile.puts %{ module = rb_define_module( "TestTarget" );}
 
-		extfile.close
+    # 認識済みの関数を登録
+    @funcTable.each do |function|
+        line = %{   rb_define_module_function( module, "#{function[:function_name]}", rb_test_#{function[:functionName]}, #{function[:args].length} );}
+        extfile.puts line
+    end
+    extfile.puts "}"
+  end
 
-		create_makefile @filename
-		result = `make`
-	end
+  def generate_wrapper_function(extfile)
+    # ラッパー関数を作成
+    @funcTable.each do |function|
+      functionName = function[:function_name]
+      args = function[:args]
+      retType = function[:ret_type]
 
-	def parse
-		prototype = false
-		code = File.open(@filename) do |file|
-			while line = file.gets
-				if line.scan(/.*\s.*\(.*\);/).length == 1
-					parts = line.split(' ')
+      extfile.puts ""
+      extfile.print "VALUE rb_test_#{function[:function_name]}"
+      extfile.print "(VALUE self"
 
-		 			# 戻り値の型
-		 			retType = getType(line)
+      # ラッパー関数引数
+      args.each.with_index(1) do |arg, idx|
+          extfile.print ",VALUE param#{idx}"
+      end
+      extfile.print ") {"
+      extfile.puts ""
+      ret = ""
+      case retType
+      when 'int'
+        extfile.puts "  int obj;"
+      end
 
-		 			# カッコの中をカンマで区切る
-		 			functionName = getFunctionName(line)
+      extfile.print " obj = #{function_name}("
+      args.each.with_index(1) do |arg, idx|
+          extfile.print ',' if idx != 1
+          case arg
+          when 'int'
+              extfile.print "FIX2INT(param#{idx})"
+          when 'void'
+              # 何も出力しない
+          end
+      end
+      extfile.puts ");"
+      case retType
+      when 'int'
+        extfile.puts "  return INT2FIX(obj);"
+      when 'void'
+        extfile.puts "  return Qnil;"
+      end
+      extfile.puts "}"
+    end
+  end
 
-			 		# 引数
-			 		args = getParams(line)
-			 		@funcTable << {:retType =>retType, :functionName =>functionName, :args => args }
-			 	end
-		 	end
-		end
-		puts "functable:#{@funcTable}"
-	end
+  def get_type(line)
+    parts = line.split(' ')
+    @@types.each do |type|
+      if type == parts[0]
+        return type
+      end
+    end
+  end
 
-	def getType(line)
-		parts = line.split(' ')
-		@@types.each do |type|
-			if type == parts[0]
-				return type
-			end
-		end
-	end
+  def get_function_name(line)
+    parts = line.split(' ')
+    parts[1].split('(')[0]
+  end
 
-	 def getFunctionName(line)
-	   parts = line.split(' ')
-	   parts[1].split('(')[0]
-	 end
-
-	 def getParams(line)
-			parts = line.split(' ')
-			parts[1].split('(')
-			paramStr =  line.scan(/\(.*\)/).first
-			paramStr.slice!(0)
-			paramStr.slice!(-1)
-			parts = paramStr.split(',')
-			args = []
-			parts.each do |paramStr|
-				paramStr.strip!
-				args << getType(paramStr.split(' ')[0])
-			end
-			return args
-	 end
+  def get_args(line)
+    parts = line.split(' ')
+    parts[1].split('(')
+    paramStr =  line.scan(/\(.*\)/).first
+    paramStr.slice!(0)
+    paramStr.slice!(-1)
+    parts = paramStr.split(',')
+    args = []
+    parts.each do |paramStr|
+      paramStr.strip!
+      args << getType(paramStr.split(' ')[0])
+    end
+    return args
+  end
+=end
 end
