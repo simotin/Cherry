@@ -10,74 +10,31 @@ class Cherry
 	end
 
 	def add(info)
-		
-	
 	end
-
-	def generate
-		# C言語のソースファイルから登録すべき関数名を取得する
-		parse
-		extfile = File.open("ext.c","w")
+	
+	# ヘッダー部出力
+	def generateHeader(extfile)
 		extfile.puts %{#include "ruby.h"}
+
+		# 認識済みの関数のextern 宣言を出力
+		@funcTable.each do |function|
+			extfile.print "extern #{function[:retType]} #{function[:functionName]}("
+			function[:args].each.with_index(1) do |arg, idx|
+				extfile.print ', ' if idx != 1
+				extfile.print "#{arg}"
+			end
+			extfile.puts ");"
+
+		end
+	end
+	
+	# ライブラリ初期化コード出力
+	def generateInitCode(extfile)
 		extfile.puts ""
 		extfile.puts "void Init_TestTarget(void) {"
+		extfile.puts ""
 		extfile.puts "	VALUE module;"
 		extfile.puts %{	module = rb_define_module( "TestTarget" );}
-
-		# ラッパー関数を作成
-		@funcTable.each do |function|
-			extfile.puts "VALUE rb_test_#{function[:functionName]}"
-
-			print "(VALUE self"
-			# ラッパー関数引数
-			args = function[:args]
-			retType = function[:retType]
-			args.with_index do |arg, idx|
-				print ",#{arg} param#{idx}"
-			end
-			print ") {"
-			ret = ""
-			case retType
-				when 'int'
-					ret = "INT2FIX("
-						print %{#{function[:functionName]}(}
-						if function[:args].length != 0
-							function[:args].each do |arg|
-							print "#{arg},"
-						else
-							print "void"
-						end
-				when 'void'
-					ret = "void"
-					print %{#{function[:functionName]}(}
-					if function[:args].length != 0
-						argStr
-						function[:args].each do |arg|
-							argStr += "#{arg}"
-						end
-						# 末尾の, を削除
-						argStr.slice!(-1)
-						puts  "#{argStr}) {"
-					else
-						print "void"
-					end
-			end
-			puts "	VALUE obj"
-			print "obj = #{functionName}("
-			args.with_index do |arg, idx|
-				print ',' if idx != 1
-				case arg
-				when 'int'
-					print "FIX2INT(param#{idx}"
-			end
-			case retType
-				when 'int'
-					puts "return INT2FIX(#{obj});"
-				when 'void'
-					puts "return Qnil;"
-			end
-			puts "}"
-		end
 
 		# 認識済みの関数を登録
 		@funcTable.each do |function|
@@ -85,8 +42,72 @@ class Cherry
 			extfile.puts line
 		end
 		extfile.puts "}"
+	end
+
+	def generateWrapperFunction(extfile)
+		# ラッパー関数を作成
+		@funcTable.each do |function|
+			functionName = function[:functionName]
+			args = function[:args]
+			retType = function[:retType]
+
+			extfile.puts ""
+			extfile.print "VALUE rb_test_#{function[:functionName]}"
+			extfile.print "(VALUE self"
+
+			# ラッパー関数引数
+			args.each.with_index(1) do |arg, idx|
+				extfile.print ",VALUE param#{idx}"
+			end
+			extfile.print ") {"
+			extfile.puts ""
+			ret = ""
+			case retType
+				when 'int'
+					extfile.puts "	int obj;"
+			end
+
+			
+			extfile.print "	obj = #{functionName}("
+			args.each.with_index(1) do |arg, idx|
+				extfile.print ',' if idx != 1
+				case arg
+				when 'int'
+					extfile.print "FIX2INT(param#{idx})"
+				when 'void'
+					# 何も出力しない
+				end
+			end
+			extfile.puts ");"
+			case retType
+				when 'int'
+					extfile.puts "	return INT2FIX(obj);"
+				when 'void'
+					extfile.puts "	return Qnil;"
+			end
+			extfile.puts "}"
+		end
+	end
+	
+	def run
+		parse
+		build
+	end
+
+	def build
+
+		extfile = File.open("ext.c","w")
+		generateHeader(extfile)
+
+		# テスト対象関数のラッパー関数生成
+		generateWrapperFunction(extfile)
+		
+		# ライブラリ初期化コードの生成
+		generateInitCode(extfile)
+
 		extfile.close
-		create_makefile filename
+
+		create_makefile @filename
 		result = `make`
 	end
 
@@ -98,14 +119,14 @@ class Cherry
 					parts = line.split(' ')
 
 		 			# 戻り値の型
-		 			rettype = getType(line)
+		 			retType = getType(line)
 
 		 			# カッコの中をカンマで区切る
-		 			funcName = getFunctionName(line)
+		 			functionName = getFunctionName(line)
 
 			 		# 引数
 			 		args = getParams(line)
-			 		@funcTable << {:rettype =>rettype, :functionName =>funcName, :args => args }
+			 		@funcTable << {:retType =>retType, :functionName =>functionName, :args => args }
 			 	end
 		 	end
 		end
