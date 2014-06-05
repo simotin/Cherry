@@ -2,7 +2,6 @@ require 'mkmf'
 
 class Cherry
   ASSERT_EQUAL = :ASSERT_EQUAL
-
   @@types = ['int', 'void']
 
   def initialize(filename)
@@ -61,16 +60,17 @@ class Cherry
 
   def out_summary(summary)
     puts "================================================================================="
-    puts "=                              Test Summary                                     ="
+    puts "                              Test Summary                                       "
     puts "================================================================================="
-    puts "#{summary[:passed]} test are passed, #{summary[:failed]} test are failed in #{summary[:passed]+ summary[:failed]} tests..."
+    puts "[\e[32;1m#{summary[:passed]}\e[m] tests are passed, [\e[31;1m#{summary[:failed]}\e[m] test are failed in [#{summary[:passed] + summary[:failed]}] tests..."
     puts ""
-    puts "[detail]"
+    puts "============================== Test Result Details =============================="
     summary[:details].each.with_index do |detail, idx|
+      message = "Test No.#{idx+1}, commnet:#{@tests[idx][:comment]}, [#{detail[:result]}]"
       if detail[:result] == "passed"
-        puts "Test No.#{idx+1} #{@tests[idx][:comment]} [#{detail[:result]}]"
+        puts message
       else
-        puts "Test No.#{idx+1} #{@tests[idx][:comment]} [#{detail[:result]}] #{@tests[idx][:function_name]} returned #{detail[:ret]}, But you expected #{@tests[idx][:value]}."
+        puts "#{message}, #{@tests[idx][:function_name]} returned #{detail[:ret]}, But you expected #{@tests[idx][:value]}."
       end
     end
   end
@@ -81,11 +81,8 @@ class Cherry
       while line = file.gets
         if line.scan(/.*\s.*\(.*\);/).length == 1
           parts = line.split(' ')
-          # 戻り値の型
           ret_type = parse_type(line)
-          # カッコの中をカンマで区切る
           function_name = parse_function_name(line)
-          # 引数
           args = parse_args(line)
           @funcTable << {:ret_type =>ret_type, :function_name =>function_name, :args => args }
         end
@@ -94,25 +91,22 @@ class Cherry
   end
 
   def build
-      extfile = File.open("ext.c","w")
+    extfile = File.open("ext.c","w")
+    begin
       generate_header(extfile)
-
-      # テスト対象関数のラッパー関数生成
       generate_wrapper_function(extfile)
-
-      # ライブラリ初期化コードの生成
       generate_init_code(extfile)
-
+    ensure
       extfile.close
-
-      create_makefile('TestTarget')
-      result = `make`
+    end
+    create_makefile('TestTarget')
+    result = `make`
   end
 
   def generate_header(extfile)
     extfile.puts %{#include "ruby.h"}
 
-    # 認識済みの関数のextern 宣言を出力
+    # out function prototype
     @funcTable.each do |function|
       extfile.print "extern #{function[:ret_type]} #{function[:function_name]}("
         function[:args].each.with_index(1) do |arg, idx|
@@ -123,7 +117,6 @@ class Cherry
     end
   end
 
-  # ライブラリ初期化コード出力
   def generate_init_code(extfile)
     extfile.puts ""
     extfile.puts "void Init_TestTarget(void) {"
@@ -131,7 +124,7 @@ class Cherry
     extfile.puts "\tVALUE module;"
     extfile.puts %{\tmodule = rb_define_module( "TestTarget" );}
 
-    # 認識済みの関数を登録
+    # regist wapper functions
     @funcTable.each do |function|
         line = %{\trb_define_module_function( module, "#{function[:function_name]}", rb_test_#{function[:function_name]}, #{function[:args].length} );}
         extfile.puts line
@@ -140,7 +133,6 @@ class Cherry
   end
 
   def generate_wrapper_function(extfile)
-    # ラッパー関数を作成
     @funcTable.each do |function|
       function_name = function[:function_name]
       args = function[:args]
@@ -150,7 +142,6 @@ class Cherry
       extfile.print "VALUE rb_test_#{function[:function_name]}"
       extfile.print "(VALUE self"
 
-      # ラッパー関数引数
       args.each.with_index(1) do |arg, idx|
           extfile.print ",VALUE param#{idx}"
       end
@@ -159,7 +150,7 @@ class Cherry
       ret = ""
       case retType
       when 'int'
-        extfile.puts "  int obj;"
+        extfile.puts "\tint obj;"
       end
 
       extfile.print " obj = #{function_name}("
@@ -169,15 +160,14 @@ class Cherry
           when 'int'
               extfile.print "FIX2INT(param#{idx})"
           when 'void'
-              # 何も出力しない
           end
       end
       extfile.puts ");"
       case retType
       when 'int'
-        extfile.puts "  return INT2FIX(obj);"
+        extfile.puts "\treturn INT2FIX(obj);"
       when 'void'
-        extfile.puts "  return Qnil;"
+        extfile.puts "\treturn Qnil;"
       end
       extfile.puts "}"
     end
@@ -210,5 +200,16 @@ class Cherry
       args << parse_type(paramStr.split(' ')[0])
     end
     return args
+  end
+
+  def type_convert(type)
+    case type
+    when 'char', 'unsigned char', 'signed char', 'short', 'unsigned short','signed short', 'int','unsigned int', 'signed int', 'long', 'unsigned long', 'size_t'
+      return Fixnum
+    when 'void'
+      return NilClass
+    when 'float','double'
+      return Float
+    end
   end
 end
