@@ -4,17 +4,17 @@ class Cherry
   ASSERT_EQUAL = :ASSERT_EQUAL
 
   @@types = ['int', 'void']
-  @test_case = []
 
   def initialize(filename)
-    puts "initialize"
     @funcTable = []
     @filename = filename
+    @tests = []
   end
 
-  # 
-  def add_test(function_name, args, assert_type, comment="")
-    @tests << {:function_name =>function_name, :args=>args, :assert_type=>assert_type, :value=>value, :comment=>comment}
+  # add test case
+  def add_test(function_name, args, assert_type, value, comment="")
+    h = {:function_name =>function_name, :args=>args, :assert_type=>assert_type, :value=>value, :comment=>comment}
+    @tests << h
   end
 
   def run
@@ -23,42 +23,79 @@ class Cherry
     exec_test
   end
 
+  private
+
+  # execute test cases
   def exec_test
-    require 'TestTarget'
-    @test_cases.each do |test|
-      ret = eval("TestTarget.#{test.function_name}")
+    require './TestTarget'
+    summary = {}
+    details = []
+    passed = 0
+    failed = 0
+    @tests.each do |test|
+      exec_code = "TestTarget.#{test[:function_name]} "
+      test[:args].each.with_index(1) do |arg, idx|
+        exec_code += "," if idx != 1
+        exec_code += "#{arg}"
+      end
+
+      ret = eval(exec_code)
       case test[:assert_type]
       when ASSERT_EQUAL
         if test[:value] == ret
-          test_result << "success"
+          result = "passed"
+          passed += 1
         else
-          test_result << "failed #{test[:function_name]} returns #{ret}. You expect #{test[:value]}"
+          failed += 1
+          result = "failed"
         end
+        details << {:result=>result, :ret=>ret}
+      end
+      total  = @tests.length
+      failed = total - passed
+      summary = {:passed=>passed, :failed=>failed, :details=>details}
+    end
+
+    out_summary(summary)
+  end
+
+  def out_summary(summary)
+    puts "================================================================================="
+    puts "=                              Test Summary                                     ="
+    puts "================================================================================="
+    puts "#{summary[:passed]} test are passed, #{summary[:failed]} test are failed in #{summary[:passed]+ summary[:failed]} tests..."
+    puts ""
+    puts "[detail]"
+    summary[:details].each.with_index do |detail, idx|
+      if detail[:result] == "passed"
+        puts "Test No.#{idx+1} #{@tests[idx][:comment]} [#{detail[:result]}]"
+      else
+        puts "Test No.#{idx+1} #{@tests[idx][:comment]} [#{detail[:result]}] #{@tests[idx][:function_name]} returned #{detail[:ret]}, But you expected #{@tests[idx][:value]}."
       end
     end
   end
+
+  # parse C sourse code
   def parse
     code = File.open(@filename) do |file|
       while line = file.gets
         if line.scan(/.*\s.*\(.*\);/).length == 1
           parts = line.split(' ')
           # 戻り値の型
-          retType = getType(line)
+          ret_type = parse_type(line)
           # カッコの中をカンマで区切る
-          functionName = getFunctionName(line)
+          function_name = parse_function_name(line)
           # 引数
-          args = getParams(line)
+          args = parse_args(line)
           @funcTable << {:ret_type =>ret_type, :function_name =>function_name, :args => args }
         end
       end
     end
-    puts "functable:#{@func_table}"
   end
-=begin
 
   def build
       extfile = File.open("ext.c","w")
-      generateHeader(extfile)
+      generate_header(extfile)
 
       # テスト対象関数のラッパー関数生成
       generate_wrapper_function(extfile)
@@ -68,10 +105,10 @@ class Cherry
 
       extfile.close
 
-      create_makefile @filename
+      create_makefile('TestTarget')
       result = `make`
   end
-  # ヘッダー部出力
+
   def generate_header(extfile)
     extfile.puts %{#include "ruby.h"}
 
@@ -91,12 +128,12 @@ class Cherry
     extfile.puts ""
     extfile.puts "void Init_TestTarget(void) {"
     extfile.puts ""
-    extfile.puts "    VALUE module;"
-    extfile.puts %{ module = rb_define_module( "TestTarget" );}
+    extfile.puts "\tVALUE module;"
+    extfile.puts %{\tmodule = rb_define_module( "TestTarget" );}
 
     # 認識済みの関数を登録
     @funcTable.each do |function|
-        line = %{   rb_define_module_function( module, "#{function[:function_name]}", rb_test_#{function[:functionName]}, #{function[:args].length} );}
+        line = %{\trb_define_module_function( module, "#{function[:function_name]}", rb_test_#{function[:function_name]}, #{function[:args].length} );}
         extfile.puts line
     end
     extfile.puts "}"
@@ -105,7 +142,7 @@ class Cherry
   def generate_wrapper_function(extfile)
     # ラッパー関数を作成
     @funcTable.each do |function|
-      functionName = function[:function_name]
+      function_name = function[:function_name]
       args = function[:args]
       retType = function[:ret_type]
 
@@ -146,7 +183,7 @@ class Cherry
     end
   end
 
-  def get_type(line)
+  def parse_type(line)
     parts = line.split(' ')
     @@types.each do |type|
       if type == parts[0]
@@ -155,12 +192,12 @@ class Cherry
     end
   end
 
-  def get_function_name(line)
+  def parse_function_name(line)
     parts = line.split(' ')
     parts[1].split('(')[0]
   end
 
-  def get_args(line)
+  def parse_args(line)
     parts = line.split(' ')
     parts[1].split('(')
     paramStr =  line.scan(/\(.*\)/).first
@@ -170,9 +207,8 @@ class Cherry
     args = []
     parts.each do |paramStr|
       paramStr.strip!
-      args << getType(paramStr.split(' ')[0])
+      args << parse_type(paramStr.split(' ')[0])
     end
     return args
   end
-=end
 end
