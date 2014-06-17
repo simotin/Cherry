@@ -1,6 +1,7 @@
 require 'mkmf'
+require './parser.rb'
 
-class Cherry
+class Ractin
   ASSERT_EQUAL = :ASSERT_EQUAL
   @@types = ['int', 'void']
 
@@ -10,7 +11,7 @@ class Cherry
     @tests = []
   end
 
-  # add test case
+  # add Test case
   def add_test(function_name, args, assert_type, value, comment="")
     h = {:function_name =>function_name, :args=>args, :assert_type=>assert_type, :value=>value, :comment=>comment}
     @tests << h
@@ -18,13 +19,16 @@ class Cherry
 
   def run
     parse
-    build
+    begin
+      build
+    rescue
+    end
     exec_test
   end
 
   private
 
-  # execute test cases
+  # execute Test cases
   def exec_test
     require './TestTarget'
     summary = {}
@@ -77,6 +81,9 @@ class Cherry
 
   # parse C sourse code
   def parse
+    parser = RactinParser.new
+    @function_list = parser.parse(@filename)
+=begin
     code = File.open(@filename) do |file|
       while line = file.gets
         if line.scan(/.*\s.*\(.*\);/).length == 1
@@ -84,10 +91,11 @@ class Cherry
           ret_type = parse_type(line)
           function_name = parse_function_name(line)
           args = parse_args(line)
-          @funcTable << {:ret_type =>ret_type, :function_name =>function_name, :args => args }
+          @function_list << {:ret_type =>ret_type, :function_name =>function_name, :args => args }
         end
       end
     end
+=end
   end
 
   def build
@@ -100,18 +108,22 @@ class Cherry
       extfile.close
     end
     create_makefile('TestTarget')
-    result = `make`
+    `make`
+    if $? != 0
+      raise "builed failed"
+    end
   end
 
   def generate_header(extfile)
     extfile.puts %{#include "ruby.h"}
 
     # out function prototype
-    @funcTable.each do |function|
-      extfile.print "extern #{function[:ret_type]} #{function[:function_name]}("
+    @function_list.each do |function|
+      return_info = function[:return_info]
+      extfile.print "extern #{return_info[:return_type]} #{function[:function_name]}("
         function[:args].each.with_index(1) do |arg, idx|
           extfile.print ', ' if idx != 1
-          extfile.print "#{arg}"
+          extfile.print "#{arg[:arg_type]}"
         end
       extfile.puts ");"
     end
@@ -125,7 +137,7 @@ class Cherry
     extfile.puts %{\tmodule = rb_define_module( "TestTarget" );}
 
     # regist wapper functions
-    @funcTable.each do |function|
+    @function_list.each do |function|
         line = %{\trb_define_module_function( module, "#{function[:function_name]}", rb_test_#{function[:function_name]}, #{function[:args].length} );}
         extfile.puts line
     end
@@ -133,10 +145,11 @@ class Cherry
   end
 
   def generate_wrapper_function(extfile)
-    @funcTable.each do |function|
+    @function_list.each do |function|
       function_name = function[:function_name]
       args = function[:args]
-      retType = function[:ret_type]
+      return_info = function[:return_info]
+      return_type = return_info[:return_type]
 
       extfile.puts ""
       extfile.print "VALUE rb_test_#{function[:function_name]}"
@@ -148,22 +161,24 @@ class Cherry
       extfile.print ") {"
       extfile.puts ""
       ret = ""
-      case retType
+
+      # TODO 戻り値型に合わせた変数を宣言する
+      case return_type
       when 'int'
         extfile.puts "\tint obj;"
       end
 
-      extfile.print " obj = #{function_name}("
+      extfile.print "\tobj = #{function_name}("
       args.each.with_index(1) do |arg, idx|
           extfile.print ',' if idx != 1
-          case arg
+          case arg[:arg_type]
           when 'int'
               extfile.print "FIX2INT(param#{idx})"
           when 'void'
           end
       end
       extfile.puts ");"
-      case retType
+      case return_type
       when 'int'
         extfile.puts "\treturn INT2FIX(obj);"
       when 'void'

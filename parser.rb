@@ -1,6 +1,6 @@
 require 'strscan'
 
-class RaCtinParser
+class RactinParser
 
   def parse(file_path)
     @types = %w{char short int long void}
@@ -10,10 +10,14 @@ class RaCtinParser
 
     # parse start!
     s = StringScanner.new(code)
+    # TODO 
     # ユーザーのインクルードチェック
     # 将来的には読み込めるようにしたい
     # check_include s
     until s.eos? do
+      # 修飾子
+      prefix = s.scan(/unsigned\s|signed\s/)
+
       @types.each do |type|
         # TODO
         # 以下の正規表現だと
@@ -32,17 +36,19 @@ class RaCtinParser
             p variable
           else
             # 関数チェック
-            function = check_function s, symbol_name
+            function = check_function s
             unless function.nil?
               function[:function_name] = symbol_name
+              return_info = { prefix: prefix, return_type: type, ptr_count: ptr_count }
+              function[:return_info] = return_info
+              function_list << function 
             end
-            function_list << function 
           end
         end
       end
       s.scan_until(/\n|\r\n/)
     end
-    p function_list
+    return function_list
   end
 
   private
@@ -57,13 +63,13 @@ class RaCtinParser
     end
   end
 
-  def check_function s, function_name
+  def check_function s
     arg_str = s.scan(/\(.*\);/)
     unless arg_str.nil?
       arg_str.delete!("(")
       arg_str.delete!(")")
       args = check_args arg_str
-      return { function_name: function_name, args:args} 
+      return {args: args}
     end
     return nil
   end
@@ -108,7 +114,7 @@ class RaCtinParser
             arg_name = arg_str
           end
 
-          args << {prefix: prefix, arg_name: arg_name, ptr_count:ptr_count}
+          args << {prefix: prefix, arg_type:type, arg_name: arg_name, ptr_count:ptr_count}
           next
         end
       end
@@ -116,11 +122,3 @@ class RaCtinParser
     return args
   end
 end
-
-# =============================================================================
-# test code
-# =============================================================================
-ractin = RaCtinParser.new
-ractin.parse("calc.c")
-
-
