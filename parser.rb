@@ -1,97 +1,126 @@
-# auto  double  int struct
-# break else  long  switch
-# case  enum  register  typedef
-# char  extern  return  union
-# const float short unsigned
-# continue  for signed  void
-# default goto  sizeof  volatile
-# do  if  static  while
-#
-# int   hoge(void);
-# int   *hoge(void);
-# int*  hoge(void);
-# int * hoge(void)
-# void *
-types = %w{char short int void long float double}
+require 'strscan'
 
-def parse_line(line)
-  ary = line.split(' ')
-  ary.each.with_index do |syntax,idx|
-    if idx == 0
-      prefix = check_prefix(syntax)
-      # 変数 or 戻り値
-      type = check_type(syntax)
-      parse_status = :type_found
-    else
-      case parse_status
-      when :type_found
-        check_ptr syntax
-        # 変数チェック
-        if found_type != 'void'
-          variable = check_variables(syntax)
-          parse_status = :variable_found
+class RaCtinParser
+
+  def parse(file_path)
+    @types = %w{char short int long void}
+    code = File.open(file_path).read
+
+    function_list = []
+
+    # parse start!
+    s = StringScanner.new(code)
+    # ユーザーのインクルードチェック
+    # 将来的には読み込めるようにしたい
+    # check_include s
+    until s.eos? do
+      @types.each do |type|
+        # TODO
+        # 以下の正規表現だと
+        # int * * * hoge;
+        # みたいなパターンに対応できていない。
+        syntax = s.scan(/#{type}\s?\*+\s|#{type}\s/)
+        if syntax
+          ptr_count = 0
+          # ポインタチェック
+          ptr_count = syntax.scan('*').length if syntax.include?('*')
+
+          # シンボル名取得
+          symbol_name = s.scan(/^[a-z$_][a-z0-9]+/i) 
+          variable = check_variable s
+          if variable
+            p variable
+          else
+            # 関数チェック
+            function = check_function s, symbol_name
+            unless function.nil?
+              function[:function_name] = symbol_name
+            end
+            function_list << function 
+          end
         end
-        # 関数チェック
-        check_function(syntax) if parse_status == :type_found
+      end
+      s.scan_until(/\n|\r\n/)
+    end
+    p function_list
+  end
+
+  private
+
+  def check_include s
+    include_str = s.scan(/#include\s+".*"/)
+    if include_str
+      file_path = include_str.slice(/".*"/).delete!("\"")
+      # TODO ファイル存在チェック
+      # ファイルがない場合はワーニングを出して継続
+      # TODO ファイル読み込み
+    end
+  end
+
+  def check_function s, function_name
+    arg_str = s.scan(/\(.*\);/)
+    unless arg_str.nil?
+      arg_str.delete!("(")
+      arg_str.delete!(")")
+      args = check_args arg_str
+      return { function_name: function_name, args:args} 
+    end
+    return nil
+  end
+
+  def check_variable s
+    variable = s.scan(/;/)
+    if variable
+      p symbol_type: 'variable', ary_count: 0
+    else
+      idx_str = s.scan(/\[\d+\];/)
+      # TODO 添え字の英語は？
+      if idx_str
+        ary_count = idx_str.slice(/\d+/).to_i
+        p symbol_type: 'variable', ary_count: ary_count
       end
     end
+    return nil
   end
-end
 
-def check_prefix syntax
-  prefixes = %w{unsigned signed extern static volatile}
-  prefix = prefixes.index(syntax)
-  return syntax if prefix
-end
+  def check_args arg_str
+    args = []
+    args_list = arg_str.split(',')
+    args_list.each do |arg_str|
+      arg_str.strip!
 
-def check_type syntax
-  ptr_count = 0
-  types.each do |type|
-    if syntax.match(/#{type}\*?+/)
-      ptr_count = syntax.slice(/\*+/).length if syntax.include?('*')
-      return {type: type, ptr_count: ptr_count}
+      # 型修飾子チェック
+      prefix = arg_str.slice!(/unsigned\s|signed\s/)
+
+      @types.each do |type|
+        # 一致すればそのまま切り取って、引数名のチェック
+        syntax = arg_str.slice!(/#{type}\s?\*+\s?|#{type}\s/)
+        if syntax
+          ptr_count = 0
+
+          # ポインタチェック
+          ptr_count = syntax.slice(/\*+/).length if syntax.include?('*')
+
+          # 変数名の有無
+          if arg_str == ""
+            arg_name = nil
+          else
+            arg_name = arg_str
+          end
+
+          args << {prefix: prefix, arg_name: arg_name, ptr_count:ptr_count}
+          next
+        end
+      end
     end
-  end
-  return nil
-end
-
-# ポインタ型チェック
-def check_ptr syntax
-  if '*' * syntax.length == syntax
-    # ポインタ数 or nil を返す
-    syntax.length
+    return args
   end
 end
 
-def check_variables(syntax,type_info)
-  # C言語の変数宣言を探す
-  ary_count = 0
-  ptr = syntax.slice(/^\*+/)
-  if !ptr.nil?
-    type_info[:ptr_count] += ptr.length
-  end
-  variable_name = syntax.slice!(/\*?+[_a-z]+[0-9a-z_]+/i)
-  if variable_name
-    if syntax.match(/;/)
-      return {variablename: variable_name, ary_count: 0}
-    else syntax.match(/\[\d+\];/)
-      ary_count = syntax.scan(/\d+/).to_i
-      return {variablename: variable_name, ary_count: ary_count}
-    end
-  end
-  return nil
-end
+# =============================================================================
+# test code
+# =============================================================================
+ractin = RaCtinParser.new
+ractin.parse("calc.c")
 
-# 関数かどうかチェックする
-def check_function(syntax,type_info)
-  ptr = syntax.slice(/^\*+/)
-  if !ptr.nil?
-    type_info[:ptr_count] += ptr.length
-  end
-  function_name = syntax.slice!(/\*?+[_a-z]+[0-9a-z_]+/i)
-  if function_name
 
-  end
-
-  # 前提としてスペースを区切りとして分割してきたけど、スキャナでスキャンしたほうが早い？
-end
