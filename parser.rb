@@ -2,18 +2,18 @@ require 'strscan'
 
 class RactinParser
 
+	def initialize
+		@types = %w{char short int long void}
+	end
+
   def parse(file_path)
-    @types = %w{char short int long void}
     code = File.open(file_path).read
-
     function_list = []
-
-    # parse start!
     s = StringScanner.new(code)
     # TODO 
-    # ユーザーのインクルードチェック
-    # 将来的には読み込めるようにしたい
+    # ユーザーのインクルードチェック 将来的には読み込めるようにしたい
     # check_include s
+
     until s.eos? do
       # 修飾子
       prefix = s.scan(/unsigned\s|signed\s/)
@@ -50,6 +50,45 @@ class RactinParser
     end
     return function_list
   end
+  
+	def check_struct s=nil
+		code = open("calc.c").read
+		s = StringScanner.new(code)
+		
+		struct_start = s.scan(/\s?+typedef\sstruct\s?+{/)
+		if struct_start
+			struct_body = s.scan_until(/}/)
+			struct_end = s.scan_until(/\s?+[_a-z]+[a-z1-9_]+;/i)
+			if struct_end
+				struct_name = struct_end.strip!.delete!(";")
+			else
+				# TODO
+				# 異常系 構造体の終了定義がない
+			end
+			members = []
+
+			body_scanner = StringScanner.new(struct_body)
+			until e = body_scanner.scan(/}/)
+				body_scanner.scan_until(/\n|\r\n/)
+				@types.each do |type|
+	        syntax = body_scanner.scan(/\s?+#{type}\s?\*+\s+|\s?+#{type}\s+/)
+	        if syntax
+	          ptr_count = 0
+	          # ポインタチェック
+	          ptr_count = syntax.scan('*').length if syntax.include?('*')
+
+	          # シンボル名取得
+	          symbol_name = body_scanner.scan(/^[a-z$_][a-z0-9]+/i) 
+	          variable = check_variable(body_scanner)
+	          variable[:symbol_name] = symbol_name
+	          members << variable
+	        end
+	      end
+			end
+			{struct_name: struct_name, members: members}
+		end
+		
+	end
 
   private
 
@@ -66,8 +105,7 @@ class RactinParser
   def check_function s
     arg_str = s.scan(/\(.*\);/)
     unless arg_str.nil?
-      arg_str.delete!("(")
-      arg_str.delete!(")")
+      arg_str.delete!("()")
       args = check_args arg_str
       return {args: args}
     end
@@ -75,16 +113,13 @@ class RactinParser
   end
 
   def check_variable s
-    variable = s.scan(/;/)
-    if variable
-      p symbol_type: 'variable', ary_count: 0
+    variable = s.scan_until(/;/)
+    if variable == ';'
+      return {symbol_type: 'variable', ary_count: 0}
     else
-      idx_str = s.scan(/\[\d+\];/)
-      # TODO 添え字の英語は？
-      if idx_str
-        ary_count = idx_str.slice(/\d+/).to_i
-        p symbol_type: 'variable', ary_count: ary_count
-      end
+    		# TODO 配列表現ができているかチェックしないといけない
+        ary_count = variable.slice(/\d+/).to_i
+        return {symbol_type: 'variable', ary_count: ary_count}
     end
     return nil
   end
@@ -122,3 +157,5 @@ class RactinParser
     return args
   end
 end
+parser = RactinParser.new
+p parser.check_struct
