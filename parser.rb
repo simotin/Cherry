@@ -33,7 +33,6 @@ class RactinParser
           symbol_name = s.scan(/^[a-z$_][a-z0-9]+/i) 
           variable = check_variable s
           if variable
-            p variable
           else
             # 関数チェック
             function = check_function s
@@ -113,15 +112,15 @@ class RactinParser
   end
 
   def check_variable s
-    variable = s.scan_until(/;/)
-    if variable == ';'
+    str = s.check_until(/;/)
+    if str == ';'
       return {symbol_type: 'variable', ary_count: 0}
+    elsif /\[\d+\]\s?+;/ =~ str
+      ary_count = variable.slice(/\d+/).to_i
+      return {symbol_type: 'variable', ary_count: ary_count}
     else
-    		# TODO 配列表現ができているかチェックしないといけない
-        ary_count = variable.slice(/\d+/).to_i
-        return {symbol_type: 'variable', ary_count: ary_count}
+      return nil
     end
-    return nil
   end
 
   def check_args arg_str

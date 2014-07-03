@@ -6,7 +6,6 @@ class Ractin
   @@types = ['int', 'void']
 
   def initialize(filename)
-    @funcTable = []
     @filename = filename
     @tests = []
   end
@@ -83,19 +82,6 @@ class Ractin
   def parse
     parser = RactinParser.new
     @function_list = parser.parse(@filename)
-=begin
-    code = File.open(@filename) do |file|
-      while line = file.gets
-        if line.scan(/.*\s.*\(.*\);/).length == 1
-          parts = line.split(' ')
-          ret_type = parse_type(line)
-          function_name = parse_function_name(line)
-          args = parse_args(line)
-          @function_list << {:ret_type =>ret_type, :function_name =>function_name, :args => args }
-        end
-      end
-    end
-=end
   end
 
   def build
