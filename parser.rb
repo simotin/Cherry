@@ -1,22 +1,29 @@
 require 'strscan'
 
 class RactinParser
-
-	def initialize
-		@types = %w{char short int long void}
-	end
+  attr_reader :types
+  def initialize
+    @types = %w{char short int long void}
+  end
 
   def parse(file_path)
     code = File.open(file_path).read
     function_list = []
+    struct_list = []
     s = StringScanner.new(code)
-    # TODO 
+    # TODO
     # ユーザーのインクルードチェック 将来的には読み込めるようにしたい
     # check_include s
 
     until s.eos? do
       # 修飾子
       prefix = s.scan(/unsigned\s|signed\s/)
+      # 構造体チェック
+      st = check_struct s
+      unless st.nil?
+        @types << st[:struct_name]
+        struct_list << st
+      end
 
       @types.each do |type|
         # TODO
@@ -30,7 +37,8 @@ class RactinParser
           ptr_count = syntax.scan('*').length if syntax.include?('*')
 
           # シンボル名取得
-          symbol_name = s.scan(/^[a-z$_][a-z0-9]+/i) 
+          symbol_name = s.scan(/^[a-z$_][a-z0-9_]+/i)
+          p symbol_name
           variable = check_variable s
           if variable
           else
@@ -47,13 +55,29 @@ class RactinParser
       end
       s.scan_until(/\n|\r\n/)
     end
-    return function_list
+    struct_list.each do |st|
+      classname = st[:struct_name]
+      # Define Class as Top Level Class.
+      reg = /#{classname}/
+      if Object.constants.grep(reg).empty?
+        cmp_str = ""
+        st_class = Object.const_set classname, Class.new
+        member_num = st[:members].length
+        st[:members].each.with_index(1) do|member,idx|
+          member_name = member[:symbol_name]
+          st_class.class_eval("attr_accessor :#{member_name}")
+          cmp_str += "#{member_name} == obj.#{member_name}"
+          cmp_str += "&&" unless member_num == idx
+        end
+        method_cmp = "def == obj\n#{cmp_str}\nend"
+        st_class.class_eval(method_cmp)
+      else
+        puts "#{classname} Class is already defined..."
+      end
+    end
+  return function_list
   end
-  
-	def check_struct s=nil
-		code = open("calc.c").read
-		s = StringScanner.new(code)
-		
+	def check_struct s
 		struct_start = s.scan(/\s?+typedef\sstruct\s?+{/)
 		if struct_start
 			struct_body = s.scan_until(/}/)
@@ -77,16 +101,17 @@ class RactinParser
 	          ptr_count = syntax.scan('*').length if syntax.include?('*')
 
 	          # シンボル名取得
-	          symbol_name = body_scanner.scan(/^[a-z$_][a-z0-9]+/i) 
+	          symbol_name = body_scanner.scan(/^[a-z$_][a-z0-9]+/i)
 	          variable = check_variable(body_scanner)
-	          variable[:symbol_name] = symbol_name
+            variable[:type] = type
+            variable[:symbol_name] = symbol_name
+	          variable[:ptr_count] = ptr_count
 	          members << variable
 	        end
 	      end
 			end
 			{struct_name: struct_name, members: members}
 		end
-		
 	end
 
   private
@@ -114,10 +139,10 @@ class RactinParser
   def check_variable s
     str = s.check_until(/;/)
     if str == ';'
-      return {symbol_type: 'variable', ary_count: 0}
+      return {ary_count: 0}
     elsif /\[\d+\]\s?+;/ =~ str
-      ary_count = variable.slice(/\d+/).to_i
-      return {symbol_type: 'variable', ary_count: ary_count}
+      ary_count = str.slice(/\d+/).to_i
+      return {ary_count: ary_count}
     else
       return nil
     end
@@ -156,5 +181,3 @@ class RactinParser
     return args
   end
 end
-parser = RactinParser.new
-p parser.check_struct

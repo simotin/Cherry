@@ -16,12 +16,9 @@ class Ractin
     @tests << h
   end
 
-  def run
+  def go!
     parse
-    begin
-      build
-    rescue
-    end
+    build
     exec_test
   end
 
@@ -82,9 +79,11 @@ class Ractin
   def parse
     parser = RactinParser.new
     @function_list = parser.parse(@filename)
+    @types = parser.types
   end
 
   def build
+    puts "Build Phase Start..."
     extfile = File.open("ext.c","w")
     begin
       generate_header(extfile)
@@ -94,6 +93,7 @@ class Ractin
       extfile.close
     end
     create_makefile('TestTarget')
+    puts "makefile created"
     `make`
     if $? != 0
       raise "builed failed"
@@ -102,8 +102,10 @@ class Ractin
 
   def generate_header(extfile)
     extfile.puts %{#include "ruby.h"}
+    extfile.puts %{#include "#{@filename}"}
 
     # out function prototype
+=begin
     @function_list.each do |function|
       return_info = function[:return_info]
       extfile.print "extern #{return_info[:return_type]} #{function[:function_name]}("
@@ -113,6 +115,7 @@ class Ractin
         end
       extfile.puts ");"
     end
+=end
   end
 
   def generate_init_code(extfile)
@@ -148,20 +151,20 @@ class Ractin
       extfile.puts ""
       ret = ""
 
-      # TODO 戻り値型に合わせた変数を宣言する
-      case return_type
-      when 'int'
-        extfile.puts "\tint obj;"
+      @types.each do |type|
+        if type == return_type
+          extfile.puts "\t#{type} obj;"
+        end
       end
 
       extfile.print "\tobj = #{function_name}("
       args.each.with_index(1) do |arg, idx|
-          extfile.print ',' if idx != 1
-          case arg[:arg_type]
-          when 'int'
-              extfile.print "FIX2INT(param#{idx})"
-          when 'void'
-          end
+        extfile.print ',' if idx != 1
+        case arg[:arg_type]
+        when 'int'
+          extfile.print "FIX2INT(param#{idx})"
+        when 'void'
+        end
       end
       extfile.puts ");"
       case return_type
